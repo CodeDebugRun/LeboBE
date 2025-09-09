@@ -54,31 +54,49 @@ const createMerkmalstext = async (req, res) => {
   const { identnr, merkmal, auspraegung, drucktext, sondermerkmal, position, sonderAbt, fertigungsliste } = req.body;
   try {
     const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
     
-    const result = await pool.request()
-      .input('identnr', sql.VarChar, identnr)
-      .input('merkmal', sql.VarChar, merkmal)
-      .input('auspraegung', sql.VarChar, auspraegung)
-      .input('drucktext', sql.VarChar, drucktext)
-      .input('sondermerkmal', sql.VarChar, sondermerkmal || '')
-      .input('merkmalsposition', sql.Int, position ? parseInt(position) : null)
-      .input('maka', sql.Int, sonderAbt ? parseInt(sonderAbt) : null)
-      .input('fertigungsliste', sql.Int, fertigungsliste ? parseInt(fertigungsliste) : null)
-      .query(`INSERT INTO merkmalstexte (identnr, merkmal, auspraegung, drucktext) 
-              VALUES (@identnr, @merkmal, @auspraegung, @drucktext); 
-              SELECT * FROM merkmalstexte WHERE id = SCOPE_IDENTITY()`);
+    await transaction.begin();
+    
+    try {
+      // Legacy JSP mantığı: Pozisyon shifting işlemi
+      if (position && parseInt(position) > 0) {
+        await transaction.request()
+          .input('position', sql.Int, parseInt(position))
+          .query('UPDATE merkmalstexte SET merkmalsposition = merkmalsposition + 1 WHERE merkmalsposition >= @position');
+      }
+      
+      // Tüm alanları içeren INSERT işlemi
+      const result = await transaction.request()
+        .input('identnr', sql.VarChar, identnr)
+        .input('merkmal', sql.VarChar, merkmal)
+        .input('auspraegung', sql.VarChar, auspraegung)
+        .input('drucktext', sql.VarChar, drucktext)
+        .input('sondermerkmal', sql.VarChar, sondermerkmal || '')
+        .input('merkmalsposition', sql.Int, position ? parseInt(position) : null)
+        .input('maka', sql.Int, sonderAbt ? parseInt(sonderAbt) : null)
+        .input('fertigungsliste', sql.Int, fertigungsliste ? parseInt(fertigungsliste) : null)
+        .query(`INSERT INTO merkmalstexte (identnr, merkmal, auspraegung, drucktext, sondermerkmal, merkmalsposition, maka, fertigungsliste) 
+                VALUES (@identnr, @merkmal, @auspraegung, @drucktext, @sondermerkmal, @merkmalsposition, @maka, @fertigungsliste); 
+                SELECT * FROM merkmalstexte WHERE id = SCOPE_IDENTITY()`);
 
-    console.log('Insert result:', result.recordset);
+      await transaction.commit();
+      
+      console.log('Insert result:', result.recordset);
 
-    // Frontend için yeni alanları ekleyelim
-    const record = result.recordset[0];
-    const createdRecord = {
-      ...record,
-      position: record.merkmalsposition || null,
-      sonderAbt: record.maka || null,
-      fertigungsliste: record.fertigungsliste || null
-    };
-    res.status(201).json(createdRecord);
+      // Frontend için alanları eşleştirelim
+      const record = result.recordset[0];
+      const createdRecord = {
+        ...record,
+        position: record.merkmalsposition || null,
+        sonderAbt: record.maka || null,
+        fertigungsliste: record.fertigungsliste || null
+      };
+      res.status(201).json(createdRecord);
+    } catch (transactionErr) {
+      await transaction.rollback();
+      throw transactionErr;
+    }
   } catch (err) {
     console.error('CREATE Error Details:');
     console.error('Message:', err.message);
@@ -187,6 +205,72 @@ const deleteMerkmalstext = async (req, res) => {
 };
 
 
+// Tekli pozisyon güncelleme fonksiyonu (Legacy: merkmalsposition_edit.jsp)
+const updatePosition = async (req, res) => {
+  const { id } = req.params;
+  const { position } = req.body;
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('id', sql.Int, id)
+      .input('merkmalsposition', sql.Int, position ? parseInt(position) : null)
+      .query(`UPDATE merkmalstexte 
+              SET merkmalsposition = @merkmalsposition
+              WHERE id = @id;
+              SELECT * FROM merkmalstexte WHERE id = @id`);
+    
+    if (result.recordset.length === 0) {
+      return res.status(404).send('Bu ID ile kayıt bulunamadı.');
+    }
+    
+    // Frontend için alanları eşleştirelim
+    const record = result.recordset[0];
+    const updatedRecord = {
+      ...record,
+      position: record.merkmalsposition,
+      sonderAbt: record.maka,
+      fertigungsliste: record.fertigungsliste
+    };
+    
+    res.status(200).json(updatedRecord);
+  } catch (err) {
+    console.error('Position Update Error:', err.message);
+    res.status(500).send(err.message);
+  }
+};
+
+// Toplu pozisyon güncelleme fonksiyonu (Legacy: identnr ve merkmal bazlı)
+const updateBulkPosition = async (req, res) => {
+  const { identnr, merkmal, position } = req.body;
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('identnr', sql.VarChar, identnr)
+      .input('merkmal', sql.VarChar, merkmal)
+      .input('merkmalsposition', sql.Int, position ? parseInt(position) : null)
+      .query(`UPDATE merkmalstexte 
+              SET merkmalsposition = @merkmalsposition
+              WHERE identnr = @identnr AND merkmal = @merkmal;
+              SELECT * FROM merkmalstexte WHERE identnr = @identnr AND merkmal = @merkmal`);
+    
+    // Frontend için alanları eşleştirelim
+    const updatedRecords = result.recordset.map(record => ({
+      ...record,
+      position: record.merkmalsposition,
+      sonderAbt: record.maka,
+      fertigungsliste: record.fertigungsliste
+    }));
+    
+    res.status(200).json({
+      message: `${updatedRecords.length} kayıt güncellendi.`,
+      records: updatedRecords
+    });
+  } catch (err) {
+    console.error('Bulk Position Update Error:', err.message);
+    res.status(500).send(err.message);
+  }
+};
+
 module.exports = {
   getAllMerkmalstexte,
   getMerkmalstextById,
@@ -194,4 +278,6 @@ module.exports = {
   updateMerkmalstext,
   patchMerkmalstext,
   deleteMerkmalstext,
+  updatePosition,
+  updateBulkPosition,
 };

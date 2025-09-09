@@ -16,7 +16,7 @@ export default function Home() {
     sondermerkmal: '',
     position: '',
     sonderAbt: '',
-    fListe: ''
+    fertigungsliste: ''
   });
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -43,6 +43,14 @@ export default function Home() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Data validation before submit
+    const validationErrors = validateFormData(formData);
+    if (validationErrors.length > 0) {
+      setError('Die eingegebenen Daten sind nicht geeignet: ' + validationErrors.join(', '));
+      return;
+    }
+    
     try {
       if (editingItem) {
         await axios.put(`${API_BASE}/${editingItem.id}`, formData);
@@ -52,7 +60,7 @@ export default function Home() {
       await fetchMerkmalstexte();
       resetForm();
     } catch (err) {
-      setError('Error saving data: ' + err.message);
+      setError('Fehler beim Speichern: ' + err.message);
     }
   };
 
@@ -77,7 +85,7 @@ export default function Home() {
       sondermerkmal: item.sondermerkmal || '',
       position: item.position || '',
       sonderAbt: item.sonderAbt || '',
-      fListe: item.fListe || ''
+      fertigungsliste: item.fertigungsliste || ''
     });
     setShowForm(true);
   };
@@ -91,10 +99,11 @@ export default function Home() {
       sondermerkmal: '',
       position: '',
       sonderAbt: '',
-      fListe: ''
+      fertigungsliste: ''
     });
     setEditingItem(null);
     setShowForm(false);
+    setError(null); // Clear any validation errors
   };
 
   const handleInputChange = (e) => {
@@ -102,9 +111,39 @@ export default function Home() {
       ...formData,
       [e.target.name]: e.target.value
     });
+    // Clear error when user starts typing
+    if (error) setError(null);
   };
 
-  // Filter records based on search term
+  // Data validation function
+  const validateFormData = (data) => {
+    const errors = [];
+    
+    // Required fields validation
+    if (!data.identnr?.trim()) errors.push('Identnr ist erforderlich');
+    if (!data.merkmal?.trim()) errors.push('Merkmal ist erforderlich');
+    if (!data.auspraegung?.trim()) errors.push('Ausprägung ist erforderlich');
+    if (!data.drucktext?.trim()) errors.push('Drucktext ist erforderlich');
+    
+    // Position validation (must be positive number if provided)
+    if (data.position && (isNaN(data.position) || parseInt(data.position) < 0)) {
+      errors.push('Position muss eine positive Zahl sein');
+    }
+    
+    // SonderAbt validation (must be number if provided)  
+    if (data.sonderAbt && isNaN(data.sonderAbt)) {
+      errors.push('Sonder Abt. muss eine Zahl sein');
+    }
+    
+    // Fertigungsliste validation (must be number if provided)
+    if (data.fertigungsliste && isNaN(data.fertigungsliste)) {
+      errors.push('F-Liste muss eine Zahl sein');
+    }
+    
+    return errors;
+  };
+
+  // Filter records based on search term (with safe type conversion)
   const filteredMerkmalstexte = merkmalstexte.filter(item => {
     if (!searchTerm) return true;
     const searchLower = searchTerm.toLowerCase();
@@ -114,9 +153,9 @@ export default function Home() {
       item.auspraegung?.toLowerCase().includes(searchLower) ||
       item.drucktext?.toLowerCase().includes(searchLower) ||
       item.sondermerkmal?.toLowerCase().includes(searchLower) ||
-      item.position?.toLowerCase().includes(searchLower) ||
-      item.sonderAbt?.toLowerCase().includes(searchLower) ||
-      item.fListe?.toLowerCase().includes(searchLower) ||
+      (item.position ? item.position.toString().toLowerCase().includes(searchLower) : false) ||
+      (item.sonderAbt ? item.sonderAbt.toString().toLowerCase().includes(searchLower) : false) ||
+      (item.fertigungsliste ? item.fertigungsliste.toString().toLowerCase().includes(searchLower) : false) ||
       item.id?.toString().includes(searchTerm)
     );
   });
@@ -172,7 +211,7 @@ export default function Home() {
         {showForm && (
           <div className="form-container">
             <h2>{editingItem ? 'Edit Record' : 'Add New Record'}</h2>
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} noValidate>
               <div className="form-group">
                 <label>Ident Nr:</label>
                 <input
@@ -180,7 +219,7 @@ export default function Home() {
                   name="identnr"
                   value={formData.identnr}
                   onChange={handleInputChange}
-                  required
+                  placeholder="z.B. ID001, PART123"
                 />
               </div>
               <div className="form-group">
@@ -190,7 +229,7 @@ export default function Home() {
                   name="merkmal"
                   value={formData.merkmal}
                   onChange={handleInputChange}
-                  required
+                  placeholder="z.B. Farbe, Größe, Material"
                 />
               </div>
               <div className="form-group">
@@ -200,7 +239,7 @@ export default function Home() {
                   name="auspraegung"
                   value={formData.auspraegung}
                   onChange={handleInputChange}
-                  required
+                  placeholder="z.B. Rot, XL, Aluminium"
                 />
               </div>
               <div className="form-group">
@@ -210,7 +249,7 @@ export default function Home() {
                   name="drucktext"
                   value={formData.drucktext}
                   onChange={handleInputChange}
-                  required
+                  placeholder="z.B. Text für Druck/Ausgabe"
                 />
               </div>
               <div className="form-group">
@@ -220,33 +259,38 @@ export default function Home() {
                   name="sondermerkmal"
                   value={formData.sondermerkmal}
                   onChange={handleInputChange}
+                  placeholder="z.B. Besondere Kennzeichnung (optional)"
                 />
               </div>
               <div className="form-group">
                 <label>Position:</label>
                 <input
-                  type="text"
+                  type="number"
                   name="position"
                   value={formData.position}
                   onChange={handleInputChange}
+                  placeholder="z.B. 1, 2, 3... (Reihenfolge)"
+                  min="1"
                 />
               </div>
               <div className="form-group">
                 <label>Sonder Abt.:</label>
                 <input
-                  type="text"
+                  type="number"
                   name="sonderAbt"
                   value={formData.sonderAbt}
                   onChange={handleInputChange}
+                  placeholder="z.B. 100, 200 (Abteilungsnummer)"
                 />
               </div>
               <div className="form-group">
                 <label>F-Liste:</label>
                 <input
-                  type="text"
-                  name="fListe"
-                  value={formData.fListe}
+                  type="number"
+                  name="fertigungsliste"
+                  value={formData.fertigungsliste}
                   onChange={handleInputChange}
+                  placeholder="z.B. 1, 2, 3... (Fertigungslistennummer)"
                 />
               </div>
               <div className="form-buttons">
@@ -273,7 +317,6 @@ export default function Home() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>ID</th>
                     <th>Identnr</th>
                     <th>Merkmal</th>
                     <th>Ausprägung</th>
@@ -288,7 +331,6 @@ export default function Home() {
                 <tbody>
                   {filteredMerkmalstexte.slice(0, 50).map((item) => (
                     <tr key={item.id}>
-                      <td>{item.id}</td>
                       <td>{item.identnr}</td>
                       <td>{item.merkmal}</td>
                       <td>{item.auspraegung}</td>
@@ -296,7 +338,7 @@ export default function Home() {
                       <td>{item.sondermerkmal}</td>
                       <td>{item.position}</td>
                       <td>{item.sonderAbt}</td>
-                      <td>{item.fListe}</td>
+                      <td>{item.fertigungsliste}</td>
                       <td className="actions">
                         <button 
                           className="btn btn-edit" 

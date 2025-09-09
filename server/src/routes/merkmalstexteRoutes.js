@@ -21,4 +21,10 @@ router.patch('/merkmalstexte/:id', controller.patchMerkmalstext);
 // DELETE: ID'ye göre bir kaydı sil (DELETE)
 router.delete('/merkmalstexte/:id', controller.deleteMerkmalstext);
 
+// PATCH: Tekli pozisyon güncelleme (Legacy: merkmalsposition_edit.jsp)
+router.patch('/merkmalstexte/:id/position', controller.updatePosition);
+
+// PATCH: Toplu pozisyon güncelleme (identnr ve merkmal bazlı)
+router.patch('/merkmalstexte/positions/bulk', controller.updateBulkPosition);
+
 module.exports = router;
